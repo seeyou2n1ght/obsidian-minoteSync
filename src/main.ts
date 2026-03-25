@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, Notice } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, Notice, Platform } from 'obsidian';
 import { SyncEngine, SyncState } from './sync';
 import { XiaomiLoginModal } from './login';
 import { MiNoteAPI, destroyProxyWebview } from './api';
@@ -15,6 +15,7 @@ interface MiNoteSyncSettings {
 	dateFormat: string;
 	aggregateFilePath: string;
 	noteTemplate: string;
+	disableOnMobile: boolean;
 	syncState: SyncState;
 }
 
@@ -30,6 +31,7 @@ const DEFAULT_SETTINGS: MiNoteSyncSettings = {
 	dateFormat: 'YYYY-MM-DD_HH-mm-ss',
 	aggregateFilePath: 'MiNotes/全量笔记.md',
 	noteTemplate: '## {{title}}\n> 📁 {{folder}}  |  🕐 {{createTime}}\n\n{{content}}\n\n---',
+	disableOnMobile: false,
 	syncState: {
 		lastSyncTime: 0,
 		syncTag: '',
@@ -45,6 +47,11 @@ export default class MiNoteSyncPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
+
+		if (Platform.isMobile && this.settings.disableOnMobile) {
+			console.log('MiNoteSync: 移动端已禁用此插件。');
+			return;
+		}
 		
 		this.statusBarItem = this.addStatusBarItem();
 		this.statusBarItem.setText('');
@@ -155,6 +162,16 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.syncOnStartup)
 				.onChange(async (value) => {
 					this.plugin.settings.syncOnStartup = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('移动端禁用')
+			.setDesc('在移动端启动时自动禁用插件，避免不必要的资源占用。')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.disableOnMobile)
+				.onChange(async (value) => {
+					this.plugin.settings.disableOnMobile = value;
 					await this.plugin.saveSettings();
 				}));
 
