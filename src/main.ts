@@ -158,44 +158,41 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// ── 存储路径 ──
-		containerEl.createEl('h3', {text: '📁 存储路径'});
+		// ── 附件设置 ──
+		containerEl.createEl('h3', {text: '📎 附件设置'});
+		const attachmentSection = containerEl.createDiv();
+		const renderAttachmentSection = () => {
+			attachmentSection.empty();
 
-		new Setting(containerEl)
-			.setName('笔记目录')
-			.setDesc('同步的笔记存放在哪个文件夹（分文件模式有效）')
-			.addText(text => text
-				.setPlaceholder('MiNotes')
-				.setValue(this.plugin.settings.noteFolder)
-				.onChange(async (value) => {
-					this.plugin.settings.noteFolder = value;
-					await this.plugin.saveSettings();
-				}));
+			new Setting(attachmentSection)
+				.setName('附件处理方式')
+				.setDesc('「下载至本地」可永久保留；「在线链接」省空间但存在防盗链失效风险。')
+				.addDropdown(dropdown => dropdown
+					.addOption('local', '⬇️ 下载并保存至本地 (推荐)')
+					.addOption('online', '🔗 作为在线链接插入')
+					.setValue(this.plugin.settings.attachmentMode)
+					.onChange(async (value: 'local' | 'online') => {
+						this.plugin.settings.attachmentMode = value;
+						await this.plugin.saveSettings();
+						renderAttachmentSection();
+					}));
 
-		new Setting(containerEl)
-			.setName('附件目录')
-			.setDesc('图片、音频等附件存放目录（仅「下载至本地」模式使用）')
-			.addText(text => text
-				.setPlaceholder('MiNotes/Attachments')
-				.setValue(this.plugin.settings.attachmentFolder)
-				.onChange(async (value) => {
-					this.plugin.settings.attachmentFolder = value;
-					await this.plugin.saveSettings();
-				}));
+			if (this.plugin.settings.attachmentMode === 'local') {
+				new Setting(attachmentSection)
+					.setName('附件目录')
+					.setDesc('图片、音频等附件存放目录')
+					.addText(text => text
+						.setPlaceholder('MiNotes/Attachments')
+						.setValue(this.plugin.settings.attachmentFolder)
+						.onChange(async (value) => {
+							this.plugin.settings.attachmentFolder = value;
+							await this.plugin.saveSettings();
+						}));
+			}
+		};
+		renderAttachmentSection();
 
-		new Setting(containerEl)
-			.setName('附件处理方式')
-			.setDesc('「下载至本地」可永久保留；「在线链接」省空间但存在防盗链失效风险。')
-			.addDropdown(dropdown => dropdown
-				.addOption('local', '⬇️ 下载并保存至本地 (推荐)')
-				.addOption('online', '🔗 作为在线链接插入')
-				.setValue(this.plugin.settings.attachmentMode)
-				.onChange(async (value: 'local' | 'online') => {
-					this.plugin.settings.attachmentMode = value;
-					await this.plugin.saveSettings();
-				}));
-
-		// ── 模板配置 ──
+		// ── 输出格式与模板 ──
 		containerEl.createEl('h3', {text: '📝 输出格式与模板'});
 
 		const templateSection = containerEl.createDiv();
@@ -205,7 +202,7 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 
 			new Setting(templateSection)
 				.setName('输出模式')
-				.setDesc('「分文件」：每篇笔记生成独立 .md；「聚合」：所有笔记合并写入同一文件，以隐藏 ID 锚点增量更新各段落。')
+				.setDesc('「分文件」：每篇笔记生成独立 .md；「聚合」：所有笔记合并写入同一文件。')
 				.addDropdown(dd => dd
 					.addOption('individual', '📄 分文件（每篇独立）')
 					.addOption('aggregate', '📚 聚合单文件')
@@ -216,21 +213,32 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 						renderTemplateSection();
 					}));
 
-			new Setting(templateSection)
-				.setName('时间格式')
-				.setDesc('模板里 {{createTime}} / {{modifyTime}} 的输出格式，遵循 moment.js 规范（如 YYYY-MM-DD HH:mm）')
-				.addText(text => text
-					.setPlaceholder('YYYY-MM-DD_HH-mm-ss')
-					.setValue(this.plugin.settings.dateFormat)
-					.onChange(async (value) => {
-						this.plugin.settings.dateFormat = value;
-						await this.plugin.saveSettings();
-					}));
-
 			if (isIndividual) {
 				new Setting(templateSection)
+					.setName('笔记目录')
+					.setDesc('同步的笔记存放在哪个文件夹')
+					.addText(text => text
+						.setPlaceholder('MiNotes')
+						.setValue(this.plugin.settings.noteFolder)
+						.onChange(async (value) => {
+							this.plugin.settings.noteFolder = value;
+							await this.plugin.saveSettings();
+						}));
+
+				new Setting(templateSection)
+					.setName('时间格式')
+					.setDesc('遵循 moment.js 规范（如 YYYY-MM-DD HH:mm）')
+					.addText(text => text
+						.setPlaceholder('YYYY-MM-DD_HH-mm-ss')
+						.setValue(this.plugin.settings.dateFormat)
+						.onChange(async (value) => {
+							this.plugin.settings.dateFormat = value;
+							await this.plugin.saveSettings();
+						}));
+
+				new Setting(templateSection)
 					.setName('文件命名规则')
-					.setDesc('可用变量：{{id}}  {{title}}  {{folder}}  {{createTime}}  {{modifyTime}}')
+					.setDesc('可用变量：{{id}} {{title}} {{folder}} {{createTime}} {{modifyTime}}')
 					.addText(text => text
 						.setPlaceholder('{{createTime}}_{{title}}')
 						.setValue(this.plugin.settings.fileNameTemplate)
@@ -241,7 +249,7 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 
 				new Setting(templateSection)
 					.setName('YAML Frontmatter 模板')
-					.setDesc('每篇笔记顶部注入的属性块。留空则不生成。可用变量同上。')
+					.setDesc('每篇笔记顶部注入的属性块。可用变量同上。')
 					.addTextArea(text => {
 						text.inputEl.rows = 6;
 						text.inputEl.style.width = '100%';
@@ -253,6 +261,17 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 							});
 					});
 			} else {
+				new Setting(templateSection)
+					.setName('时间格式')
+					.setDesc('遵循 moment.js 规范（如 YYYY-MM-DD HH:mm）')
+					.addText(text => text
+						.setPlaceholder('YYYY-MM-DD_HH-mm-ss')
+						.setValue(this.plugin.settings.dateFormat)
+						.onChange(async (value) => {
+							this.plugin.settings.dateFormat = value;
+							await this.plugin.saveSettings();
+						}));
+
 				new Setting(templateSection)
 					.setName('聚合文件路径')
 					.setDesc('所有笔记写入此 .md 文件（相对知识库根目录）')
