@@ -17,7 +17,7 @@ export class XiaomiLoginModal extends Modal {
 		contentEl.style.overflow = 'hidden';
 
 		const header = contentEl.createDiv({ cls: 'modal-title' });
-		header.setText('请扫码或输入密码登录小米云服务');
+		header.setText('小米云服务安全鉴权');
 		header.style.padding = '10px 20px';
 		header.style.textAlign = 'center';
 		header.style.fontWeight = 'bold';
@@ -26,7 +26,8 @@ export class XiaomiLoginModal extends Modal {
 
 		const webviewContainer = contentEl.createDiv();
 		webviewContainer.style.width = '100%';
-		webviewContainer.style.height = '650px';
+		const height = Math.min(650, window.innerHeight * 0.8);
+		webviewContainer.style.height = `${height}px`;
 
 		const webview = webviewContainer.createEl('webview' as any, {
 			attr: {

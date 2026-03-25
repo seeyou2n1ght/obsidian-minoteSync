@@ -9,6 +9,27 @@ export interface SyncState {
 	folders: Record<string, string>;
 }
 
+export interface SyncEngineOptions {
+	app: App;
+	partition: string;
+	noteFolder: string;
+	attachmentFolder: string;
+	attachmentMode: 'local' | 'online';
+	state: SyncState;
+	saveState: (state: SyncState) => Promise<void>;
+	onProgress?: (msg: string) => void;
+	fileNameTemplate?: string;
+	frontmatterTemplate?: string;
+	dateFormat?: string;
+	outputMode?: 'individual' | 'aggregate';
+	aggregateFilePath?: string;
+	noteTemplate?: string;
+	dailySyncAuto?: boolean;
+	dailySyncMethod?: 'append' | 'cursor' | 'heading';
+	dailySyncHeading?: string;
+	dailyNoteTemplate?: string;
+}
+
 export class SyncEngine {
 	app: App;
 	api: MiNoteAPI;
@@ -30,45 +51,26 @@ export class SyncEngine {
 	dailySyncHeading: string;
 	dailyNoteTemplate: string;
 
-	constructor(
-		app: App,
-		partition: string,
-		noteFolder: string,
-		attachmentFolder: string,
-		attachmentMode: 'local' | 'online',
-		state: SyncState,
-		saveState: (state: SyncState) => Promise<void>,
-		onProgress: (msg: string) => void = () => {},
-		fileNameTemplate: string = '{{createTime}}_{{title}}',
-		frontmatterTemplate: string = 'mi-note-id: {{id}}\nmi-note-folder: {{folder}}\ncreated: {{createTime}}\nmodified: {{modifyTime}}',
-		dateFormat: string = 'YYYY-MM-DD_HH-mm-ss',
-		outputMode: 'individual' | 'aggregate' = 'individual',
-		aggregateFilePath: string = 'MiNotes/全量笔记.md',
-		noteTemplate: string = '## {{title}}\n> 📁 {{folder}}  |  🕐 {{createTime}}\n\n{{content}}\n\n---',
-		dailySyncAuto: boolean = false,
-		dailySyncMethod: 'append' | 'cursor' | 'heading' = 'append',
-		dailySyncHeading: string = '',
-		dailyNoteTemplate: string = ''
-	) {
-		this.app = app;
-		this.partition = partition;
-		this.api = new MiNoteAPI(partition);
-		this.noteFolder = noteFolder;
-		this.attachmentFolder = attachmentFolder;
-		this.attachmentMode = attachmentMode;
-		this.state = state;
-		this.saveState = saveState;
-		this.onProgress = onProgress;
-		this.fileNameTemplate = fileNameTemplate;
-		this.frontmatterTemplate = frontmatterTemplate;
-		this.dateFormat = dateFormat;
-		this.outputMode = outputMode;
-		this.aggregateFilePath = aggregateFilePath;
-		this.noteTemplate = noteTemplate;
-		this.dailySyncAuto = dailySyncAuto;
-		this.dailySyncMethod = dailySyncMethod;
-		this.dailySyncHeading = dailySyncHeading;
-		this.dailyNoteTemplate = dailyNoteTemplate;
+	constructor(options: SyncEngineOptions) {
+		this.app = options.app;
+		this.partition = options.partition;
+		this.api = new MiNoteAPI(options.partition);
+		this.noteFolder = options.noteFolder;
+		this.attachmentFolder = options.attachmentFolder;
+		this.attachmentMode = options.attachmentMode;
+		this.state = options.state;
+		this.saveState = options.saveState;
+		this.onProgress = options.onProgress || (() => {});
+		this.fileNameTemplate = options.fileNameTemplate || '{{createTime}}_{{title}}';
+		this.frontmatterTemplate = options.frontmatterTemplate || 'mi-note-id: {{id}}\nmi-note-folder: {{folder}}\ncreated: {{createTime}}\nmodified: {{modifyTime}}';
+		this.dateFormat = options.dateFormat || 'YYYY-MM-DD_HH-mm-ss';
+		this.outputMode = options.outputMode || 'individual';
+		this.aggregateFilePath = options.aggregateFilePath || 'MiNotes/全量笔记.md';
+		this.noteTemplate = options.noteTemplate || '## {{title}}\n> 📁 {{folder}}  |  🕐 {{createTime}}\n\n{{content}}\n\n---';
+		this.dailySyncAuto = options.dailySyncAuto || false;
+		this.dailySyncMethod = options.dailySyncMethod || 'append';
+		this.dailySyncHeading = options.dailySyncHeading || '';
+		this.dailyNoteTemplate = options.dailyNoteTemplate || '';
 	}
 
 	private renderTemplate(template: string, vars: Record<string, string>): string {
@@ -142,13 +144,13 @@ export class SyncEngine {
 
 	async runSync() {
 		try {
-			new Notice('小米笔记：正在唤醒云端接口...');
+			new Notice('⏳ 正在连接小米云服务...');
 			const isLogin = await MiNoteAPI.checkLoginStatus(this.partition);
 			if (!isLogin) {
 				new Notice('检测到未登录或会话过期，请先在插件设置中完成扫码授权！');
 				return;
 			}
-			new Notice('小米笔记：授权通过，开始校验同步状态...', 2000);
+			new Notice('✅ 鉴权通过，开始校验同步状态...', 2000);
 			await this.ensureFolder(this.noteFolder);
 			await this.ensureFolder(this.attachmentFolder);
 
@@ -188,13 +190,13 @@ export class SyncEngine {
 			}
 
 			if (toSync.length === 0) {
-				new Notice('小米笔记：已经是最新，没有需要同步的笔记');
+				new Notice('✅ 已是最新，无需同步');
 				this.state.syncTag = currentSyncTag || '';
 				await this.saveState(this.state);
 				return;
 			}
 
-			new Notice(`小米笔记：发现 ${toSync.length} 篇有更新，开始下载...`);
+			new Notice(`⏳ 发现 ${toSync.length} 篇更新，开始下载...`);
 
 			let synced = 0;
 			let failedEntries: string[] = [];
@@ -331,9 +333,9 @@ export class SyncEngine {
 			
 			this.onProgress(`✅ 同步完成 (${synced}/${toSync.length})`);
 			if (failedEntries.length > 0) {
-				new Notice(`小米笔记：部分同步完成 (${synced}/${toSync.length})，有 ${failedEntries.length} 篇遇到了异常错误未落地，请打开开发者工具 (Ctrl+Shift+I) 查看明细原因。`, 10000);
+				new Notice(`⚠️ 部分同步完成 (${synced}/${toSync.length})，${failedEntries.length} 篇失败，请查看控制台详情。`, 10000);
 			} else {
-				new Notice(`小米笔记：同步完成！成功更新 ${synced} 篇笔记。`);
+				new Notice(`✅ 同步完成！成功更新 ${synced} 篇笔记。`);
 			}
 
 			// ── 自动同步至日记 ──
@@ -373,7 +375,7 @@ export class SyncEngine {
 		try {
 			const isLogin = await MiNoteAPI.checkLoginStatus(this.partition);
 			if (!isLogin) {
-				new Notice('❌ 请先在配置页完成小米云登录授权');
+				new Notice('❌ 请先完成小米云鉴权');
 				return;
 			}
 
@@ -386,11 +388,11 @@ export class SyncEngine {
 			});
 
 			if (todayNotes.length === 0) {
-				new Notice('📅 今日暂无更新的小米笔记');
+				new Notice('📅 今日无更新笔记');
 				return;
 			}
 
-			new Notice(`🚀 正在同步 ${todayNotes.length} 篇今日笔记...`);
+			new Notice(`⏳ 正在同步 ${todayNotes.length} 篇今日笔记...`);
 
 			let combinedContent = '\n';
 			for (const entry of todayNotes) {
@@ -459,7 +461,7 @@ export class SyncEngine {
 
 		} catch (error) {
 			console.error(error);
-			new Notice(`MiNote2Daily 失败: ${error.message}`);
+			new Notice(`❌ 同步至日记失败: ${error.message}`);
 		}
 	}
 }
