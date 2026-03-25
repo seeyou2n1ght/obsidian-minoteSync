@@ -1,0 +1,12 @@
+node_modules/
+main.js
+styles.css
+.obsidian/
+dist/
+*.zip
+*.log
+.DS_Store
+.env
+data.json
+.vscode/
+.idea/

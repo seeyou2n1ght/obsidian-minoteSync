@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-minote-sync",
+  "name": "Mi Note Sync",
+  "version": "1.0.0",
+  "minAppVersion": "1.1.16",
+  "description": "Sync Xiaomi Notes to Obsidian vault directly.",
+  "author": "seeyou2night",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
