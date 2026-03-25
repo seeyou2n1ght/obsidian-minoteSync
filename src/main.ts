@@ -16,6 +16,11 @@ interface MiNoteSyncSettings {
 	aggregateFilePath: string;
 	noteTemplate: string;
 	disableOnMobile: boolean;
+	dailySyncEnabled: boolean;
+	dailySyncAuto: boolean;
+	dailySyncMethod: 'append' | 'cursor' | 'heading';
+	dailySyncHeading: string;
+	dailyNoteTemplate: string;
 	syncState: SyncState;
 }
 
@@ -32,6 +37,11 @@ const DEFAULT_SETTINGS: MiNoteSyncSettings = {
 	aggregateFilePath: 'MiNotes/全量笔记.md',
 	noteTemplate: '## {{title}}\n> 📁 {{folder}}  |  🕐 {{createTime}}\n\n{{content}}\n\n---',
 	disableOnMobile: false,
+	dailySyncEnabled: false,
+	dailySyncAuto: false,
+	dailySyncMethod: 'append',
+	dailySyncHeading: '## 小米笔记',
+	dailyNoteTemplate: '> [{{time}}] {{title}}\n\n{{content}}\n\n---',
 	syncState: {
 		lastSyncTime: 0,
 		syncTag: '',
@@ -84,7 +94,11 @@ export default class MiNoteSyncPlugin extends Plugin {
 					this.settings.dateFormat,
 					this.settings.outputMode,
 					this.settings.aggregateFilePath,
-					this.settings.noteTemplate
+					this.settings.noteTemplate,
+					this.settings.dailySyncAuto,
+					this.settings.dailySyncMethod,
+					this.settings.dailySyncHeading,
+					this.settings.dailyNoteTemplate
 				);
 				await engine.runSync();
 			} finally {
@@ -106,6 +120,62 @@ export default class MiNoteSyncPlugin extends Plugin {
 				await runSync();
 			}
 		});
+
+		const runDailySync = async () => {
+			if (this.isSyncing) {
+				new Notice('⚠️ 同步任务进行中...');
+				return;
+			}
+			this.isSyncing = true;
+			this.statusBarItem.setText('⏳ 正在同步至日记...');
+			try {
+				const engine = new SyncEngine(
+					this.app,
+					this.settings.partition,
+					this.settings.noteFolder,
+					this.settings.attachmentFolder,
+					this.settings.attachmentMode,
+					this.settings.syncState,
+					async (state) => {
+						this.settings.syncState = state;
+						await this.saveSettings();
+					},
+					(msg: string) => this.statusBarItem.setText(msg),
+					this.settings.fileNameTemplate,
+					this.settings.frontmatterTemplate,
+					this.settings.dateFormat,
+					this.settings.outputMode,
+					this.settings.aggregateFilePath,
+					this.settings.noteTemplate,
+					this.settings.dailySyncAuto,
+					this.settings.dailySyncMethod,
+					this.settings.dailySyncHeading,
+					this.settings.dailyNoteTemplate
+				);
+				await engine.syncToDailyNote(
+					this.settings.dailySyncMethod,
+					this.settings.dailySyncHeading,
+					this.settings.dailyNoteTemplate
+				);
+			} finally {
+				this.isSyncing = false;
+				setTimeout(() => this.statusBarItem.setText(''), 5000);
+			}
+		};
+
+		if (this.settings.dailySyncEnabled) {
+			this.addRibbonIcon('list-plus', 'Sync to Daily Note (MiNote2Daily)', async () => {
+				await runDailySync();
+			});
+
+			this.addCommand({
+				id: 'minote-2-daily',
+				name: 'Sync Mi Notes to Daily Note',
+				callback: async () => {
+					await runDailySync();
+				}
+			});
+		}
 
 		// 添加设置面板
 		this.addSettingTab(new MiNoteSyncSettingTab(this.app, this));
@@ -333,6 +403,78 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 		};
 		renderTemplateSection();
 
+		// ── MiNote2Daily ──
+		if (this.plugin.settings.dailySyncEnabled) {
+			containerEl.createEl('h3', {text: '📅 小米笔记转日记 (MiNote2Daily)'});
+			
+			new Setting(containerEl)
+				.setName('同步方式')
+				.setDesc('自动同步：随主流程自动抓取当日笔记并追加；手动：点击侧边栏或执行指令触发。')
+				.addToggle(toggle => toggle
+					.setValue(this.plugin.settings.dailySyncAuto)
+					.onChange(async (value) => {
+						this.plugin.settings.dailySyncAuto = value;
+						await this.plugin.saveSettings();
+					}));
+
+			new Setting(containerEl)
+				.setName('插入位置')
+				.setDesc('「追加」：日记末尾；「标题」：指定标题下方；「光标」：当前编辑位置。')
+				.addDropdown(dd => dd
+					.addOption('append', '⬇️ 追加到末尾')
+					.addOption('heading', '📌 指定标题下方')
+					.addOption('cursor', '🖱️ 插入至当前光标处')
+					.setValue(this.plugin.settings.dailySyncMethod)
+					.onChange(async (value: 'append' | 'heading' | 'cursor') => {
+						this.plugin.settings.dailySyncMethod = value;
+						await this.plugin.saveSettings();
+						this.display();
+					}));
+
+			if (this.plugin.settings.dailySyncMethod === 'heading') {
+				new Setting(containerEl)
+					.setName('目标标题')
+					.setDesc('例如 ## 小米笔记。插件将在此标题下方插入内容。')
+					.addText(text => text
+						.setPlaceholder('## 小米笔记')
+						.setValue(this.plugin.settings.dailySyncHeading)
+						.onChange(async (value) => {
+							this.plugin.settings.dailySyncHeading = value;
+							await this.plugin.saveSettings();
+						}));
+			}
+
+			new Setting(containerEl)
+				.setName('日记插入模板')
+				.setDesc('同步至日记时的内容格式。支持 {{time}} 等变量。')
+				.addTextArea(text => {
+					text.inputEl.rows = 4;
+					text.inputEl.style.width = '100%';
+					text.inputEl.style.fontFamily = 'monospace';
+					text.setValue(this.plugin.settings.dailyNoteTemplate)
+						.onChange(async (value) => {
+							this.plugin.settings.dailyNoteTemplate = value;
+							await this.plugin.saveSettings();
+						});
+					
+					this.renderVariableHelper(templateSection, text.inputEl, ['time', 'title', 'folder', 'content'], async (val) => {
+						this.plugin.settings.dailyNoteTemplate = val;
+						await this.plugin.saveSettings();
+					});
+				});
+		}
+
+		new Setting(containerEl)
+			.setName('启用 MiNote2Daily')
+			.setDesc('开启后，支持将当日小米笔记快速同步到日记文件中。')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.dailySyncEnabled)
+				.onChange(async (value) => {
+					this.plugin.settings.dailySyncEnabled = value;
+					await this.plugin.saveSettings();
+					this.display();
+				}));
+
 		// ── 同步控制 ──
 		containerEl.createEl('h3', {text: '🔄 同步控制'});
 
@@ -376,7 +518,11 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 						this.plugin.settings.dateFormat,
 						this.plugin.settings.outputMode,
 						this.plugin.settings.aggregateFilePath,
-						this.plugin.settings.noteTemplate
+						this.plugin.settings.noteTemplate,
+						this.plugin.settings.dailySyncAuto,
+						this.plugin.settings.dailySyncMethod,
+						this.plugin.settings.dailySyncHeading,
+						this.plugin.settings.dailyNoteTemplate
 					);
 					await engine.runSync();
 					btn.setButtonText('已完成');

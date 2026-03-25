@@ -1,4 +1,4 @@
-import { App, Notice, TFile, TFolder } from 'obsidian';
+import { App, Notice, TFile, TFolder, MarkdownView, Editor } from 'obsidian';
 import { MiNoteAPI, NoteEntry } from './api';
 import { note2markdown, sanitizePath, formatDateTime } from './utils';
 
@@ -25,6 +25,10 @@ export class SyncEngine {
 	outputMode: 'individual' | 'aggregate';
 	aggregateFilePath: string;
 	noteTemplate: string;
+	dailySyncAuto: boolean;
+	dailySyncMethod: 'append' | 'cursor' | 'heading';
+	dailySyncHeading: string;
+	dailyNoteTemplate: string;
 
 	constructor(
 		app: App,
@@ -40,7 +44,11 @@ export class SyncEngine {
 		dateFormat: string = 'YYYY-MM-DD_HH-mm-ss',
 		outputMode: 'individual' | 'aggregate' = 'individual',
 		aggregateFilePath: string = 'MiNotes/全量笔记.md',
-		noteTemplate: string = '## {{title}}\n> 📁 {{folder}}  |  🕐 {{createTime}}\n\n{{content}}\n\n---'
+		noteTemplate: string = '## {{title}}\n> 📁 {{folder}}  |  🕐 {{createTime}}\n\n{{content}}\n\n---',
+		dailySyncAuto: boolean = false,
+		dailySyncMethod: 'append' | 'cursor' | 'heading' = 'append',
+		dailySyncHeading: string = '',
+		dailyNoteTemplate: string = ''
 	) {
 		this.app = app;
 		this.partition = partition;
@@ -57,6 +65,10 @@ export class SyncEngine {
 		this.outputMode = outputMode;
 		this.aggregateFilePath = aggregateFilePath;
 		this.noteTemplate = noteTemplate;
+		this.dailySyncAuto = dailySyncAuto;
+		this.dailySyncMethod = dailySyncMethod;
+		this.dailySyncHeading = dailySyncHeading;
+		this.dailyNoteTemplate = dailyNoteTemplate;
 	}
 
 	private renderTemplate(template: string, vars: Record<string, string>): string {
@@ -323,9 +335,131 @@ export class SyncEngine {
 			} else {
 				new Notice(`小米笔记：同步完成！成功更新 ${synced} 篇笔记。`);
 			}
+
+			// ── 自动同步至日记 ──
+			if (this.dailySyncAuto) {
+				await this.syncToDailyNote(this.dailySyncMethod, this.dailySyncHeading, this.dailyNoteTemplate);
+			}
 		} catch (error) {
 			console.error(error);
 			new Notice(`小米笔记同步失败: ${error.message}`);
+		}
+	}
+
+	/**
+	 * 获取今日日记文件对象
+	 */
+	private async getDailyNoteFile(): Promise<TFile | null> {
+		// 尝试从每日笔记插件配置中获取目录和格式
+		const dailyNotesSetting = (this.app as any).internalPlugins?.getPluginById('daily-notes')?.instance?.options;
+		const folder = dailyNotesSetting?.folder || '';
+		const format = dailyNotesSetting?.format || 'YYYY-MM-DD';
+		
+		const fileName = window.moment().format(format) + '.md';
+		const path = folder ? `${folder}/${fileName}` : fileName;
+		
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (file instanceof TFile) return file;
+		
+		// 如果不存在，尝试直接在根目录或指定目录创建
+		if (folder) await this.ensureFolder(folder);
+		return await this.app.vault.create(path, '');
+	}
+
+	/**
+	 * 将当日更新的小米笔记同步至日记
+	 */
+	async syncToDailyNote(method: 'append' | 'cursor' | 'heading', heading?: string, template: string = '') {
+		try {
+			const isLogin = await MiNoteAPI.checkLoginStatus(this.partition);
+			if (!isLogin) {
+				new Notice('❌ 请先在配置页完成小米云登录授权');
+				return;
+			}
+
+			this.onProgress('🔍 筛选今日笔记中...');
+			const res = await this.api.getNoteList(undefined, 100);
+			const todayStr = window.moment().format('YYYY-MM-DD');
+			const todayNotes = res.data.entries.filter(e => {
+				const mDate = window.moment(e.modifyDate).format('YYYY-MM-DD');
+				return mDate === todayStr;
+			});
+
+			if (todayNotes.length === 0) {
+				new Notice('📅 今日暂无更新的小米笔记');
+				return;
+			}
+
+			new Notice(`🚀 正在同步 ${todayNotes.length} 篇今日笔记...`);
+
+			let combinedContent = '\n';
+			for (const entry of todayNotes) {
+				const detailRes = await this.api.getNoteDetail(entry.id);
+				const noteDetail = detailRes.data.entry;
+				
+				// 复用部分解析逻辑
+				let extraInfo: any = {};
+				if (noteDetail.extraInfo) {
+					try { extraInfo = JSON.parse(noteDetail.extraInfo); } catch(e) {}
+				}
+				let rawContent = noteDetail.content || noteDetail.snippet || "";
+				if (extraInfo.mind_content) rawContent = extraInfo.mind_content;
+				
+				// 如果是加密内容，简单处理
+				if (rawContent.startsWith('ARES') && rawContent.length > 30) {
+					rawContent = "*[加密笔记，请在手机端解密后同步]*";
+				}
+
+				let subject = extraInfo.title || rawContent.split('\n')[0].substring(0, 15).trim() || '未命名';
+				subject = sanitizePath(subject);
+
+				const vars: Record<string, string> = {
+					id: noteDetail.id,
+					title: subject,
+					folder: this.state.folders[noteDetail.folderId] || '未分类',
+					content: note2markdown(rawContent, [], 'online'), // 日记中默认使用在线链接简化逻辑
+					time: window.moment(noteDetail.modifyDate).format('HH:mm:ss')
+				};
+
+				combinedContent += this.renderTemplate(template, vars) + '\n';
+			}
+
+			// 执行插入逻辑
+			if (method === 'cursor') {
+				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (activeView) {
+					activeView.editor.replaceSelection(combinedContent);
+					new Notice('✅ 已插入至光标位置');
+				} else {
+					new Notice('❌ 插入失败：未发现处于焦点的编辑器');
+				}
+				return;
+			}
+
+			const dailyFile = await this.getDailyNoteFile();
+			if (!dailyFile) return;
+
+			let fileContent = await this.app.vault.read(dailyFile);
+			
+			if (method === 'append') {
+				fileContent = fileContent.trimEnd() + '\n' + combinedContent;
+			} else if (method === 'heading' && heading) {
+				const headingRegex = new RegExp(`(^${heading}\\s*$)`, 'm');
+				if (headingRegex.test(fileContent)) {
+					fileContent = fileContent.replace(headingRegex, `$1\n${combinedContent.trim()}\n`);
+				} else {
+					// 找不到标题，退回到追加并提示
+					fileContent = fileContent.trimEnd() + `\n\n${heading}\n` + combinedContent;
+					new Notice(`⚠️ 未找到标题 "${heading}"，已自动补全并追加`);
+				}
+			}
+
+			await this.app.vault.modify(dailyFile, fileContent);
+			new Notice(`✅ 成功同步 ${todayNotes.length} 篇笔记至日记`);
+
+		} catch (error) {
+			console.error(error);
+			new Notice(`MiNote2Daily 失败: ${error.message}`);
 		}
 	}
 }
