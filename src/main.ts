@@ -238,14 +238,20 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 
 				new Setting(templateSection)
 					.setName('文件命名规则')
-					.setDesc('可用变量：{{id}} {{title}} {{folder}} {{createTime}} {{modifyTime}}')
-					.addText(text => text
-						.setPlaceholder('{{createTime}}_{{title}}')
-						.setValue(this.plugin.settings.fileNameTemplate)
-						.onChange(async (value) => {
-							this.plugin.settings.fileNameTemplate = value;
+					.setDesc('笔记文件的命名规则')
+					.addText(text => {
+						text.setPlaceholder('{{createTime}}_{{title}}')
+							.setValue(this.plugin.settings.fileNameTemplate)
+							.onChange(async (value) => {
+								this.plugin.settings.fileNameTemplate = value;
+								await this.plugin.saveSettings();
+							});
+						
+						this.renderVariableHelper(templateSection, text.inputEl, ['id', 'title', 'folder', 'createTime', 'modifyTime', 'color'], async (val) => {
+							this.plugin.settings.fileNameTemplate = val;
 							await this.plugin.saveSettings();
-						}));
+						});
+					});
 
 				new Setting(templateSection)
 					.setName('YAML Frontmatter 模板')
@@ -259,6 +265,11 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 								this.plugin.settings.frontmatterTemplate = value;
 								await this.plugin.saveSettings();
 							});
+						
+						this.renderVariableHelper(templateSection, text.inputEl, ['id', 'title', 'folder', 'createTime', 'modifyTime', 'color'], async (val) => {
+							this.plugin.settings.frontmatterTemplate = val;
+							await this.plugin.saveSettings();
+						});
 					});
 			} else {
 				new Setting(templateSection)
@@ -285,7 +296,7 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 
 				new Setting(templateSection)
 					.setName('笔记段落模板')
-					.setDesc('每篇笔记在聚合文件里的渲染形式。{{content}} 代表正文，其余变量同上。')
+					.setDesc('每篇笔记在聚合文件里的渲染形式。')
 					.addTextArea(text => {
 						text.inputEl.rows = 7;
 						text.inputEl.style.width = '100%';
@@ -295,6 +306,11 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 								this.plugin.settings.noteTemplate = value;
 								await this.plugin.saveSettings();
 							});
+
+						this.renderVariableHelper(templateSection, text.inputEl, ['id', 'title', 'folder', 'createTime', 'modifyTime', 'color', 'content'], async (val) => {
+							this.plugin.settings.noteTemplate = val;
+							await this.plugin.saveSettings();
+						});
 					});
 			}
 		};
@@ -353,6 +369,40 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 						setTimeout(() => this.plugin.statusBarItem.setText(''), 5000);
 					}
 				}));
+	}
+
+	private renderVariableHelper(containerEl: HTMLElement, targetInput: HTMLTextAreaElement | HTMLInputElement, variables: string[], onUpdate: (val: string) => void) {
+		const helperEl = containerEl.createDiv();
+		helperEl.style.marginTop = '8px';
+		helperEl.style.display = 'flex';
+		helperEl.style.flexWrap = 'wrap';
+		helperEl.style.gap = '6px';
+
+		variables.forEach(variable => {
+			const btn = helperEl.createEl('button', { 
+				text: `{{${variable}}}`
+			});
+			btn.style.fontSize = '0.75em';
+			btn.style.padding = '2px 8px';
+			btn.style.cursor = 'pointer';
+			btn.style.borderRadius = '4px';
+			btn.style.border = '1px solid var(--background-modifier-border)';
+			btn.style.backgroundColor = 'var(--background-secondary)';
+			
+			btn.addEventListener('click', (e) => {
+				e.preventDefault();
+				const start = targetInput.selectionStart || 0;
+				const end = targetInput.selectionEnd || 0;
+				const text = targetInput.value;
+				const insertion = `{{${variable}}}`;
+				
+				targetInput.value = text.substring(0, start) + insertion + text.substring(end);
+				targetInput.selectionStart = targetInput.selectionEnd = start + insertion.length;
+				targetInput.focus();
+				
+				onUpdate(targetInput.value);
+			});
+		});
 	}
 
 	async renderAuthSection(container: HTMLElement) {
