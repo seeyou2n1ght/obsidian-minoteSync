@@ -200,7 +200,15 @@ export class SyncEngine {
 
 			let synced = 0;
 			let failedEntries: string[] = [];
-			for (const entry of toSync) {
+
+			// 节流参数：每 BATCH_SIZE 篇后休眠 BATCH_DELAY_MS，防止高频请求触发云端风控
+			const BATCH_SIZE = 20;
+			const BATCH_DELAY_MS = 500;
+			// 每 CHECKPOINT_INTERVAL 篇自动持久化同步状态，作为断点续传 checkpoint
+			const CHECKPOINT_INTERVAL = 50;
+
+			for (let i = 0; i < toSync.length; i++) {
+				const entry = toSync[i];
 				try {
 					this.onProgress(`⏳ 拉取并解析笔记中... (${synced + 1}/${toSync.length})`);
 					const detailRes = await this.api.getNoteDetail(entry.id);
@@ -325,6 +333,16 @@ export class SyncEngine {
 								failedEntries.push(entry.id);
 								console.error('⚠️ 笔记下载解析失败', entry.id, err);
 							}
+
+				// 批次节流：每处理 BATCH_SIZE 篇后主动休眠，降低请求频率
+				if ((i + 1) % BATCH_SIZE === 0 && i + 1 < toSync.length) {
+					await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+				}
+
+				// 定期持久化同步状态，减少崩溃/中断后的重复工作量
+				if ((i + 1) % CHECKPOINT_INTERVAL === 0) {
+					await this.saveState(this.state);
+				}
 			}
 
 			this.state.syncTag = currentSyncTag || '';
