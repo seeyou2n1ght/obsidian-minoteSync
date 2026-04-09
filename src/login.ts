@@ -3,6 +3,8 @@ import { App, Modal } from 'obsidian';
 export class XiaomiLoginModal extends Modal {
 	onLoginSuccess: () => void;
 	partition: string;
+	// 标记 Modal 是否已关闭，用于终止 Cookie 轮询避免内存泄漏
+	private isDestroyed = false;
 
 	constructor(app: App, partition: string, onLoginSuccess: () => void) {
 		super(app);
@@ -11,6 +13,7 @@ export class XiaomiLoginModal extends Modal {
 	}
 
 	onOpen() {
+		this.isDestroyed = false;
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.style.padding = '0';
@@ -41,10 +44,15 @@ export class XiaomiLoginModal extends Modal {
 		webview.style.border = 'none';
 
 		webview.addEventListener('did-navigate', (e: any) => {
+			// Modal 已关闭则不再执行任何轮询
+			if (this.isDestroyed) return;
+
 			if (e.url.includes('i.mi.com/note/h5')) {
 				webview.executeJavaScript(`
-					new Promise((resolve) => {
+					new Promise((resolve, reject) => {
+						let disposed = false;
 						const check = () => {
+							if (disposed) return reject('modal_closed');
 							if (document.cookie.includes('userId=')) {
 								resolve(true);
 							} else {
@@ -52,18 +60,23 @@ export class XiaomiLoginModal extends Modal {
 							}
 						};
 						check();
+						// 30秒超时自动终止轮询，防止无限递归
+						setTimeout(() => { disposed = true; reject('timeout'); }, 30000);
 					})
 				`).then((isLoggedIn: boolean) => {
-					if (isLoggedIn) {
+					if (isLoggedIn && !this.isDestroyed) {
 						this.onLoginSuccess();
 						this.close();
 					}
+				}).catch(() => {
+					// 轮询被取消或超时，静默忽略
 				});
 			}
 		});
 	}
 
 	onClose() {
+		this.isDestroyed = true;
 		this.contentEl.empty();
 	}
 }
