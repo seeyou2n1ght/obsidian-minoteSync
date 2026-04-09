@@ -203,6 +203,23 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 		containerEl.empty();
 
+		// ── 同步摘要卡片 ──
+		const state = this.plugin.settings.syncState;
+		const totalNotes = Object.keys(state.notes || {}).length;
+		const lastSync = state.lastSyncTime > 0 ? window.moment(state.lastSyncTime).format('YYYY-MM-DD HH:mm:ss') : '尚未同步';
+
+		const statusCard = containerEl.createDiv();
+		statusCard.style.padding = '1rem';
+		statusCard.style.backgroundColor = 'var(--background-secondary)';
+		statusCard.style.borderRadius = '8px';
+		statusCard.style.border = '1px solid var(--background-modifier-border)';
+		statusCard.style.marginBottom = '2rem';
+		
+		statusCard.createEl('h3', { text: '📊 同步信息摘要', attr: { style: 'margin-top: 0;' } });
+		statusCard.createEl('div', { text: `🕒 最后同步: ${lastSync}`, attr: { style: 'margin: 0.5rem 0;' } });
+		statusCard.createEl('div', { text: `📚 已缓存笔记数: ${totalNotes} 篇`, attr: { style: 'margin: 0.5rem 0;' } });
+
+
 		const authContainer = containerEl.createDiv();
 		this.renderAuthSection(authContainer);
 
@@ -350,7 +367,15 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 							updateFileNamePreview();
 						});
-					});
+					})
+					.addExtraButton(btn => btn
+						.setIcon('rotate-ccw')
+						.setTooltip('恢复默认文件命名')
+						.onClick(async () => {
+							this.plugin.settings.fileNameTemplate = DEFAULT_SETTINGS.fileNameTemplate;
+							await this.plugin.saveSettings();
+							renderTemplateSection();
+						}));
 				const updateFileNamePreview = this.renderTemplatePreview(templateSection, () => this.plugin.settings.fileNameTemplate, mockVars);
 
 				new Setting(templateSection)
@@ -372,7 +397,15 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 							updateYamlPreview();
 						});
-					});
+					})
+					.addExtraButton(btn => btn
+						.setIcon('rotate-ccw')
+						.setTooltip('恢复默认 YAML 模板')
+						.onClick(async () => {
+							this.plugin.settings.frontmatterTemplate = DEFAULT_SETTINGS.frontmatterTemplate;
+							await this.plugin.saveSettings();
+							renderTemplateSection();
+						}));
 				const updateYamlPreview = this.renderTemplatePreview(templateSection, () => this.plugin.settings.frontmatterTemplate, mockVars);
 			} else {
 				const dateFormatSettingAgg = new Setting(templateSection)
@@ -443,7 +476,15 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 							updateNoteTemplatePreview();
 						});
-					});
+					})
+					.addExtraButton(btn => btn
+						.setIcon('rotate-ccw')
+						.setTooltip('恢复默认聚合模板')
+						.onClick(async () => {
+							this.plugin.settings.noteTemplate = DEFAULT_SETTINGS.noteTemplate;
+							await this.plugin.saveSettings();
+							renderTemplateSection();
+						}));
 				const updateNoteTemplatePreview = this.renderTemplatePreview(templateSection, () => this.plugin.settings.noteTemplate, aggMockVars);
 			}
 		};
@@ -532,7 +573,15 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 							updateDailyPreview();
 						});
-					});
+					})
+					.addExtraButton(btn => btn
+						.setIcon('rotate-ccw')
+						.setTooltip('恢复默认日记模板')
+						.onClick(async () => {
+							this.plugin.settings.dailyNoteTemplate = DEFAULT_SETTINGS.dailyNoteTemplate;
+							await this.plugin.saveSettings();
+							renderDailySection();
+						}));
 				const updateDailyPreview = this.renderTemplatePreview(dailySectionContainer, () => this.plugin.settings.dailyNoteTemplate, dailyMockVars);
 			}
 		};
