@@ -22,6 +22,19 @@ export function escapeRegExp(str: string): string {
 	return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// 异步重试装饰器，应对网络抖动等临时故障
+export async function retryable<T>(fn: () => Promise<T>, retries = 2, delayMs = 1000): Promise<T> {
+	for (let i = 0; i <= retries; i++) {
+		try {
+			return await fn();
+		} catch (e) {
+			if (i === retries) throw e;
+			await new Promise(r => setTimeout(r, delayMs));
+		}
+	}
+	throw new Error('unreachable');
+}
+
 export function note2markdown(content: string, files: any[] = [], attachmentMode: 'local' | 'online' = 'local'): string {
 	let markdown = content || "";
 

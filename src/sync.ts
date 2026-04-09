@@ -1,6 +1,6 @@
 import { App, Notice, TFile, TFolder, MarkdownView, Editor } from 'obsidian';
 import { MiNoteAPI, NoteEntry } from './api';
-import { note2markdown, sanitizePath, renderTemplate, escapeRegExp } from './utils';
+import { note2markdown, sanitizePath, renderTemplate, escapeRegExp, retryable } from './utils';
 
 export interface SyncState {
 	lastSyncTime: number;
@@ -180,7 +180,7 @@ export class SyncEngine {
 
 			// 分页拉取数据
 			while (true) {
-				const res = await this.api.getNoteList(currentSyncTag, 200);
+				const res = await retryable(() => this.api.getNoteList(currentSyncTag, 200));
 				entries = [...entries, ...res.data.entries];
 				for (const f of res.data.folders) {
 					folders[f.id] = sanitizePath(f.subject);
@@ -231,7 +231,7 @@ export class SyncEngine {
 				const entry = toSync[i];
 				try {
 					this.onProgress(`⏳ 拉取并解析笔记中... (${synced + 1}/${toSync.length})`);
-					const detailRes = await this.api.getNoteDetail(entry.id);
+					const detailRes = await retryable(() => this.api.getNoteDetail(entry.id));
 					const noteDetail = detailRes.data.entry;
 					
 					const { content, subject, extraInfo } = this.parseNoteDetail(noteDetail);
@@ -253,10 +253,10 @@ export class SyncEngine {
 							files.push({ rawId: fileMeta.fileId, name: filename });
 
 							if (this.attachmentMode === 'local') {
-								// 下载附件
+								// 下载附件 (利用 retryable 防止临时断连导致某张大图失败丢失)
 								const attachPath = `${this.attachmentFolder}/${filename}`;
 								if (!this.app.vault.getAbstractFileByPath(attachPath)) {
-									const buffer = await this.api.downloadAttachment(fileMeta.fileId);
+									const buffer = await retryable(() => this.api.downloadAttachment(fileMeta.fileId), 2, 2000);
 									await this.app.vault.createBinary(attachPath, buffer);
 								}
 							}
@@ -401,9 +401,19 @@ export class SyncEngine {
 			}
 
 			this.onProgress('🔍 筛选今日笔记中...');
-			const res = await this.api.getNoteList(undefined, 100);
+			let entries: NoteEntry[] = [];
+			let currentSyncTag: string | undefined = undefined;
+
+			// 分页拉取数据，确保当天有 100 篇以上时也不遗漏
+			while (true) {
+				const res = await retryable(() => this.api.getNoteList(currentSyncTag, 200));
+				entries = [...entries, ...res.data.entries];
+				currentSyncTag = res.data.syncTag;
+				if (res.data.lastPage) break;
+			}
+
 			const todayStr = window.moment().format('YYYY-MM-DD');
-			const todayNotes = res.data.entries.filter(e => {
+			const todayNotes = entries.filter(e => {
 				const mDate = window.moment(e.modifyDate).format('YYYY-MM-DD');
 				return mDate === todayStr;
 			});
@@ -416,8 +426,10 @@ export class SyncEngine {
 			new Notice(`⏳ 正在同步 ${todayNotes.length} 篇今日笔记...`);
 
 			let combinedContent = '\n';
-			for (const entry of todayNotes) {
-				const detailRes = await this.api.getNoteDetail(entry.id);
+			for (let i = 0; i < todayNotes.length; i++) {
+				const entry = todayNotes[i];
+				this.onProgress(`⏳ 同步今日笔记... (${i + 1}/${todayNotes.length})`);
+				const detailRes = await retryable(() => this.api.getNoteDetail(entry.id));
 				const noteDetail = detailRes.data.entry;
 				
 				const { content: rawContent, subject } = this.parseNoteDetail(noteDetail);
