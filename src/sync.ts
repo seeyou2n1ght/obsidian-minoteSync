@@ -28,6 +28,7 @@ export interface SyncEngineOptions {
 	dailySyncMethod?: 'append' | 'cursor' | 'heading';
 	dailySyncHeading?: string;
 	dailyNoteTemplate?: string;
+	dailySyncLookbackHours?: number;
 }
 
 export class SyncEngine {
@@ -50,6 +51,7 @@ export class SyncEngine {
 	dailySyncMethod: 'append' | 'cursor' | 'heading';
 	dailySyncHeading: string;
 	dailyNoteTemplate: string;
+	dailySyncLookbackHours: number;
 
 	constructor(options: SyncEngineOptions) {
 		this.app = options.app;
@@ -71,6 +73,7 @@ export class SyncEngine {
 		this.dailySyncMethod = options.dailySyncMethod || 'append';
 		this.dailySyncHeading = options.dailySyncHeading || '';
 		this.dailyNoteTemplate = options.dailyNoteTemplate || '';
+		this.dailySyncLookbackHours = options.dailySyncLookbackHours || 24;
 	}
 
 	/**
@@ -412,14 +415,15 @@ export class SyncEngine {
 				if (res.data.lastPage) break;
 			}
 
-			const todayStr = window.moment().format('YYYY-MM-DD');
+			const lookbackMs = this.dailySyncLookbackHours * 3600 * 1000;
+			const thresholdTime = Date.now() - lookbackMs;
+			
 			const todayNotes = entries.filter(e => {
-				const mDate = window.moment(e.modifyDate).format('YYYY-MM-DD');
-				return mDate === todayStr;
+				return e.modifyDate >= thresholdTime;
 			});
 
 			if (todayNotes.length === 0) {
-				new Notice('📅 今日无更新笔记');
+				new Notice(`📅 过去 ${this.dailySyncLookbackHours} 小时内无更新笔记`);
 				return;
 			}
 
