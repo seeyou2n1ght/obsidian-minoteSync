@@ -74,6 +74,9 @@ export function note2markdown(content: string, files: any[] = [], attachmentMode
 	markdown = markdown.replace(/<mid-size>(.*?)<\/mid-size>/g, "## $1");
 	markdown = markdown.replace(/<h3-size>(.*?)<\/h3-size>/g, "### $1");
 
+	// 7.5 处理超链接标签
+	markdown = markdown.replace(/<link url="([^"]+)">(.*?)<\/link>/g, "[$2]($1)");
+
 	// 8. 列表
 	// 有序列表：使用 inputNumber 属性生成正确的序号编号
 	markdown = markdown.replace(/<order indent="(\d+)" inputNumber="(\d+)" \/>/g, (_, indentStr, numStr) => {
@@ -114,10 +117,12 @@ export function note2markdown(content: string, files: any[] = [], attachmentMode
 			replacement = isAudioOrVideo ? `[${name}](${link})` : `![](${link})`;
 		}
 		
-		markdown = markdown.replace(new RegExp(`<img fileid="${fileId}"[^>]*>`, "g"), replacement);
-		markdown = markdown.replace(new RegExp(`<sound fileid="${fileId}"[^>]*>`, "g"), replacement);
-		markdown = markdown.replace(new RegExp(`<video fileid="${fileId}"[^>]*>`, "g"), replacement);
-		markdown = markdown.replace(new RegExp(`☺ ${fileId}`, "g"), replacement);
+		// 必须对 fileId 进行转义，防范其中包含正则特殊字符引发的格式损坏
+		const escapedFileId = escapeRegExp(fileId);
+		markdown = markdown.replace(new RegExp(`<img fileid="${escapedFileId}"[^>]*>`, "g"), replacement);
+		markdown = markdown.replace(new RegExp(`<sound fileid="${escapedFileId}"[^>]*>`, "g"), replacement);
+		markdown = markdown.replace(new RegExp(`<video fileid="${escapedFileId}"[^>]*>`, "g"), replacement);
+		markdown = markdown.replace(new RegExp(`☺ ${escapedFileId}`, "g"), replacement);
 	}
 
 	// 11. text 标签缩进
