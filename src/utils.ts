@@ -1,22 +1,25 @@
 import { NoteEntry, NoteFolder } from './api';
 
+// 清洗文件名中的非法字符，保留原始大小写
 export function sanitizePath(filename: string): string {
 	return filename
 		.replace(/[/\\?%*:|"<>]/g, "_")
 		.replace(/\s+/g, "_")
-		.replace(/_{2,}/g, "_")
-		.toLowerCase();
+		.replace(/_{2,}/g, "_");
 }
 
-export function formatDateTime(timestamp: number): string {
-	const date = new Date(timestamp);
-	const year = date.getFullYear();
-	const month = String(date.getMonth() + 1).padStart(2, "0");
-	const day = String(date.getDate()).padStart(2, "0");
-	const hours = String(date.getHours()).padStart(2, "0");
-	const minutes = String(date.getMinutes()).padStart(2, "0");
-	const seconds = String(date.getSeconds()).padStart(2, "0");
-	return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+// 通用模板渲染引擎：将 {{key}} 占位符替换为变量值
+export function renderTemplate(template: string, vars: Record<string, string>): string {
+	let result = template;
+	for (const key in vars) {
+		result = result.replace(new RegExp(`{{${key}}}`, 'g'), vars[key]);
+	}
+	return result;
+}
+
+// 转义正则特殊字符，确保字符串可安全用于 new RegExp()
+export function escapeRegExp(str: string): string {
+	return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function note2markdown(content: string, files: any[] = [], attachmentMode: 'local' | 'online' = 'local'): string {

@@ -55,6 +55,32 @@ export default class MiNoteSyncPlugin extends Plugin {
 	isSyncing: boolean = false;
 	statusBarItem: HTMLElement;
 
+	createSyncEngine(onProgress: (msg: string) => void): SyncEngine {
+		return new SyncEngine({
+			app: this.app,
+			partition: this.settings.partition,
+			noteFolder: this.settings.noteFolder,
+			attachmentFolder: this.settings.attachmentFolder,
+			attachmentMode: this.settings.attachmentMode,
+			state: this.settings.syncState,
+			saveState: async (state: SyncState) => {
+				this.settings.syncState = state;
+				await this.saveSettings();
+			},
+			onProgress: onProgress,
+			fileNameTemplate: this.settings.fileNameTemplate,
+			frontmatterTemplate: this.settings.frontmatterTemplate,
+			dateFormat: this.settings.dateFormat,
+			outputMode: this.settings.outputMode,
+			aggregateFilePath: this.settings.aggregateFilePath,
+			noteTemplate: this.settings.noteTemplate,
+			dailySyncAuto: this.settings.dailySyncAuto,
+			dailySyncMethod: this.settings.dailySyncMethod,
+			dailySyncHeading: this.settings.dailySyncHeading,
+			dailyNoteTemplate: this.settings.dailyNoteTemplate
+		});
+	}
+
 	async onload() {
 		await this.loadSettings();
 
@@ -75,30 +101,8 @@ export default class MiNoteSyncPlugin extends Plugin {
 			this.statusBarItem.setText('⏳ 正在同步小米笔记...');
 
 			try {
-				const engine = new SyncEngine({
-					app: this.app,
-					partition: this.settings.partition,
-					noteFolder: this.settings.noteFolder,
-					attachmentFolder: this.settings.attachmentFolder,
-					attachmentMode: this.settings.attachmentMode,
-					state: this.settings.syncState,
-					saveState: async (state: SyncState) => {
-						this.settings.syncState = state;
-						await this.saveSettings();
-					},
-					onProgress: (msg: string) => {
-						this.statusBarItem.setText(msg);
-					},
-					fileNameTemplate: this.settings.fileNameTemplate,
-					frontmatterTemplate: this.settings.frontmatterTemplate,
-					dateFormat: this.settings.dateFormat,
-					outputMode: this.settings.outputMode,
-					aggregateFilePath: this.settings.aggregateFilePath,
-					noteTemplate: this.settings.noteTemplate,
-					dailySyncAuto: this.settings.dailySyncAuto,
-					dailySyncMethod: this.settings.dailySyncMethod,
-					dailySyncHeading: this.settings.dailySyncHeading,
-					dailyNoteTemplate: this.settings.dailyNoteTemplate
+				const engine = this.createSyncEngine((msg: string) => {
+					this.statusBarItem.setText(msg);
 				});
 				await engine.runSync();
 			} finally {
@@ -129,28 +133,8 @@ export default class MiNoteSyncPlugin extends Plugin {
 			this.isSyncing = true;
 			this.statusBarItem.setText('⏳ 正在同步笔记至日记...');
 			try {
-				const engine = new SyncEngine({
-					app: this.app,
-					partition: this.settings.partition,
-					noteFolder: this.settings.noteFolder,
-					attachmentFolder: this.settings.attachmentFolder,
-					attachmentMode: this.settings.attachmentMode,
-					state: this.settings.syncState,
-					saveState: async (state: SyncState) => {
-						this.settings.syncState = state;
-						await this.saveSettings();
-					},
-					onProgress: (msg: string) => this.statusBarItem.setText(msg),
-					fileNameTemplate: this.settings.fileNameTemplate,
-					frontmatterTemplate: this.settings.frontmatterTemplate,
-					dateFormat: this.settings.dateFormat,
-					outputMode: this.settings.outputMode,
-					aggregateFilePath: this.settings.aggregateFilePath,
-					noteTemplate: this.settings.noteTemplate,
-					dailySyncAuto: this.settings.dailySyncAuto,
-					dailySyncMethod: this.settings.dailySyncMethod,
-					dailySyncHeading: this.settings.dailySyncHeading,
-					dailyNoteTemplate: this.settings.dailyNoteTemplate
+				const engine = this.createSyncEngine((msg: string) => {
+					this.statusBarItem.setText(msg);
 				});
 				await engine.syncToDailyNote(
 					this.settings.dailySyncMethod,
@@ -578,30 +562,8 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 						this.plugin.settings.syncState = { lastSyncTime: 0, syncTag: '', notes: {}, folders: {} };
 						await this.plugin.saveSettings();
 					
-						const engine = new SyncEngine({
-							app: this.app,
-							partition: this.plugin.settings.partition,
-							noteFolder: this.plugin.settings.noteFolder,
-							attachmentFolder: this.plugin.settings.attachmentFolder,
-							attachmentMode: this.plugin.settings.attachmentMode,
-							state: this.plugin.settings.syncState,
-							saveState: async (state: SyncState) => {
-								this.plugin.settings.syncState = state;
-								await this.plugin.saveSettings();
-							},
-							onProgress: (msg: string) => {
-								this.plugin.statusBarItem.setText(msg);
-							},
-							fileNameTemplate: this.plugin.settings.fileNameTemplate,
-							frontmatterTemplate: this.plugin.settings.frontmatterTemplate,
-							dateFormat: this.plugin.settings.dateFormat,
-							outputMode: this.plugin.settings.outputMode,
-							aggregateFilePath: this.plugin.settings.aggregateFilePath,
-							noteTemplate: this.plugin.settings.noteTemplate,
-							dailySyncAuto: this.plugin.settings.dailySyncAuto,
-							dailySyncMethod: this.plugin.settings.dailySyncMethod,
-							dailySyncHeading: this.plugin.settings.dailySyncHeading,
-							dailyNoteTemplate: this.plugin.settings.dailyNoteTemplate
+						const engine = this.plugin.createSyncEngine((msg: string) => {
+							this.plugin.statusBarItem.setText(msg);
 						});
 						await engine.runSync();
 						btn.setButtonText('已完成');

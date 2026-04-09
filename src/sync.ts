@@ -1,6 +1,6 @@
 import { App, Notice, TFile, TFolder, MarkdownView, Editor } from 'obsidian';
 import { MiNoteAPI, NoteEntry } from './api';
-import { note2markdown, sanitizePath, formatDateTime } from './utils';
+import { note2markdown, sanitizePath, renderTemplate, escapeRegExp } from './utils';
 
 export interface SyncState {
 	lastSyncTime: number;
@@ -73,12 +73,32 @@ export class SyncEngine {
 		this.dailyNoteTemplate = options.dailyNoteTemplate || '';
 	}
 
-	private renderTemplate(template: string, vars: Record<string, string>): string {
-		let result = template;
-		for (const key in vars) {
-			result = result.replace(new RegExp(`{{${key}}}`, 'g'), vars[key]);
+	/**
+	 * 统一解析笔记详情：提取 extraInfo、处理加密检测、生成标题
+	 * 消除 runSync 与 syncToDailyNote 中的重复逻辑
+	 */
+	private parseNoteDetail(noteDetail: NoteEntry & { content?: string, files?: any[] }): {
+		content: string;
+		subject: string;
+		extraInfo: any;
+	} {
+		let extraInfo: any = {};
+		if (noteDetail.extraInfo) {
+			try { extraInfo = JSON.parse(noteDetail.extraInfo); } catch(e) {}
 		}
-		return result;
+
+		let content = noteDetail.content || noteDetail.snippet || "";
+		if (extraInfo.mind_content) content = extraInfo.mind_content;
+
+		// 检测端到端加密内容 (ARES 开头为小米 AES 加密特征)
+		if (content.startsWith('ARES') && content.length > 30 && !content.includes(' ') && !content.includes('<')) {
+			content = "> [!warning] 端到端加密笔记\n> 这篇笔记已被小米云服务的**端到端加密**保护。\n> 您的加密密钥仅存储在本地设备中，未上传至云端，因而在第三方环境中无法直接解密呈现。\n> \n> **💡 建议：** 请您在小米手机端或网页端解除该篇笔记的私密状态，或关闭整个账号的端到端加密，然后再次点击同步。";
+		}
+
+		let subject = extraInfo.title || content.split('\n')[0].substring(0, 15).trim() || '未命名';
+		subject = sanitizePath(subject);
+
+		return { content, subject, extraInfo };
 	}
 
 	/**
@@ -214,24 +234,7 @@ export class SyncEngine {
 					const detailRes = await this.api.getNoteDetail(entry.id);
 					const noteDetail = detailRes.data.entry;
 					
-					// 提取 extraInfo (JSON 字符串)
-					let extraInfo: any = {};
-					if (noteDetail.extraInfo) {
-						try {
-							extraInfo = JSON.parse(noteDetail.extraInfo);
-						} catch(e) {}
-					}
-
-					let content = noteDetail.content || noteDetail.snippet || "";
-					if (extraInfo.mind_content) content = extraInfo.mind_content;
-
-					// 检测是否为小米端到端加密内容 (ARES 开头即为 AES 加密特征，常见于私密便签/开启了安全云服务的账号)
-					if (content.startsWith('ARES') && content.length > 30 && !content.includes(' ') && !content.includes('<')) {
-						content = "> [!warning] 端到端加密笔记\n> 这篇笔记已被小米云服务的**端到端加密**保护。\n> 您的加密密钥仅存储在本地设备中，未上传至云端，因而在第三方环境中无法直接解密呈现。\n> \n> **💡 建议：** 请您在小米手机端或网页端解除该篇笔记的私密状态，或关闭整个账号的端到端加密，然后再次点击同步。";
-					}
-
-					let subject = extraInfo.title || content.split('\n')[0].substring(0, 10).trim() || '未命名';
-					subject = sanitizePath(subject);
+					const { content, subject, extraInfo } = this.parseNoteDetail(noteDetail);
 
 					const folderName = folders[noteDetail.folderId] || '未分类';
 					const targetNoteDir = `${this.noteFolder}/${folderName}`;
@@ -276,7 +279,7 @@ export class SyncEngine {
 								if (this.outputMode === 'aggregate') {
 									// ── 聚合模式：渲染段落模板并以 ID 锚点分段写入聚合文件 ──
 									const aggVars = { ...vars, content: markdownBody };
-									const segment = this.renderTemplate(this.noteTemplate, aggVars);
+									const segment = renderTemplate(this.noteTemplate, aggVars);
 									await this.upsertAggregateNote(noteDetail.id, segment);
 									this.state.notes[noteDetail.id] = {
 										id: noteDetail.id,
@@ -285,7 +288,7 @@ export class SyncEngine {
 									};
 								} else {
 									// ── 分文件模式：YAML Frontmatter + 独立文件落地 ──
-									let yamlBody = this.renderTemplate(this.frontmatterTemplate, vars).trim();
+									let yamlBody = renderTemplate(this.frontmatterTemplate, vars).trim();
 									let finalContent = markdownBody;
 									if (yamlBody) {
 										if (!yamlBody.startsWith('---')) {
@@ -294,7 +297,7 @@ export class SyncEngine {
 										finalContent = yamlBody + '\n\n' + markdownBody;
 									}
 
-									let rawFileName = sanitizePath(this.renderTemplate(this.fileNameTemplate, vars).trim());
+									let rawFileName = sanitizePath(renderTemplate(this.fileNameTemplate, vars).trim());
 									rawFileName = rawFileName.replace(/\.md$/i, '');
 									let fileName = rawFileName + '.md';
 									let filePath = `${targetNoteDir}/${fileName}`;
@@ -417,21 +420,7 @@ export class SyncEngine {
 				const detailRes = await this.api.getNoteDetail(entry.id);
 				const noteDetail = detailRes.data.entry;
 				
-				// 复用部分解析逻辑
-				let extraInfo: any = {};
-				if (noteDetail.extraInfo) {
-					try { extraInfo = JSON.parse(noteDetail.extraInfo); } catch(e) {}
-				}
-				let rawContent = noteDetail.content || noteDetail.snippet || "";
-				if (extraInfo.mind_content) rawContent = extraInfo.mind_content;
-				
-				// 如果是加密内容，简单处理
-				if (rawContent.startsWith('ARES') && rawContent.length > 30) {
-					rawContent = "*[加密笔记，请在手机端解密后同步]*";
-				}
-
-				let subject = extraInfo.title || rawContent.split('\n')[0].substring(0, 15).trim() || '未命名';
-				subject = sanitizePath(subject);
+				const { content: rawContent, subject } = this.parseNoteDetail(noteDetail);
 
 				const vars: Record<string, string> = {
 					id: noteDetail.id,
@@ -441,7 +430,7 @@ export class SyncEngine {
 					time: window.moment(noteDetail.modifyDate).format('HH:mm:ss')
 				};
 
-				combinedContent += this.renderTemplate(template, vars) + '\n';
+				combinedContent += renderTemplate(template, vars) + '\n';
 			}
 
 			// 执行插入逻辑
