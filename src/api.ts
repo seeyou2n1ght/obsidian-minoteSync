@@ -84,8 +84,40 @@ export class MiNoteAPI {
 		try {
 			const webview = await getProxyWebview(partition);
 			await MiNoteAPI.ensureOrigin(webview);
-			const val = await webview.executeJavaScript(`document.cookie.includes('userId=')`);
-			return !!val;
+			
+			// 1. 初始化探测：如果在静态图片锚点上已经有 userId，直接放行
+			let val = await webview.executeJavaScript(`document.cookie.includes('userId=')`);
+			if (val) return true;
+
+			// 2. 如果没有，说明 session 丢失了，但持久化 token 可能还活着
+			// 驱使代理内核前往业务主页激发 SSO 的 302 洗白刷新机制
+			return await new Promise<boolean>((resolve) => {
+				let resolved = false;
+				const done = (result: boolean) => {
+					if (resolved) return;
+					resolved = true;
+					webview.removeEventListener('did-navigate', onNavigate);
+					resolve(result);
+				};
+
+				const onNavigate = async (e: any) => {
+					if (resolved) return;
+					if (e.url.includes('i.mi.com/note/h5')) {
+						// 试图检测此时是否已经重新签发了 userId
+						const hasUserId = await webview.executeJavaScript(`document.cookie.includes('userId=')`).catch(()=>false);
+						if (hasUserId) done(true);
+					} else if (e.url.includes('account.xiaomi.com/pass/serviceLogin')) {
+						// 确实掉线了，服务端将请求打回了统一账密登录页
+						done(false);
+					}
+				};
+
+				webview.addEventListener('did-navigate', onNavigate);
+				webview.setAttribute('src', 'https://i.mi.com/note/h5');
+
+				// 给足 8 秒钟时间让内核完成 302 重定向回路，超时视为须重新手动授权
+				setTimeout(() => done(false), 8000);
+			});
 		} catch(e) {
 			return false;
 		}
