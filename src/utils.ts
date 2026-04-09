@@ -59,9 +59,10 @@ export function note2markdown(content: string, files: any[] = [], attachmentMode
 	markdown = markdown.replace(/<h3-size>(.*?)<\/h3-size>/g, "### $1");
 
 	// 8. 列表
-	markdown = markdown.replace(/<order indent="(\d+)" inputNumber="\d+" \/>/g, (_, indentStr) => {
+	// 有序列表：使用 inputNumber 属性生成正确的序号编号
+	markdown = markdown.replace(/<order indent="(\d+)" inputNumber="(\d+)" \/>/g, (_, indentStr, numStr) => {
 		const indentCount = parseInt(indentStr, 10) - 1;
-		return "  ".repeat(Math.max(0, indentCount)) + "- "; 
+		return "  ".repeat(Math.max(0, indentCount)) + `${numStr}. `;
 	});
 
 	markdown = markdown.replace(/<bullet indent="(\d+)" \/>/g, (_, indentStr) => {
