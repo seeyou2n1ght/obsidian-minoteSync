@@ -1,0 +1,49 @@
+name: Release Obsidian Plugin
+
+on:
+  push:
+    # 当推送 tags 时触发
+    tags:
+      - "*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    # 授予 GitHub CLI 读写 Releases 的权限
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Archive plugin files
+        run: |
+          mkdir obsidian-minote-sync
+          cp main.js manifest.json obsidian-minote-sync/
+          # cp styles.css obsidian-minote-sync/ # 若有样式文件取消这行注释
+          zip -r obsidian-minote-sync.zip obsidian-minote-sync
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            main.js
+            manifest.json
+            obsidian-minote-sync.zip
+            # styles.css # 如果你的插件有样式文件，请取消此行注释
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
