@@ -55,9 +55,13 @@ export function getProxyWebview(partition: string): Promise<any> {
 		proxyWebview.setAttribute('src', 'https://i.mi.com/favicon.ico');
 		proxyWebview.setAttribute('style', 'width: 0; height: 0; position: absolute; visibility: hidden;');
 		
+		// dom-ready 触发后正常 resolve
 		proxyWebview.addEventListener('dom-ready', () => {
 			resolve(proxyWebview);
 		});
+
+		// 超时兜底：防止网络异常导致 dom-ready 永远不触发而阻塞整个插件
+		setTimeout(() => resolve(proxyWebview), 8000);
 		
 		document.body.appendChild(proxyWebview as Node);
 	});
@@ -124,15 +128,25 @@ export class MiNoteAPI {
 		}
 	}
 
-	private async request<T>(url: string): Promise<T> {
+	private async request<T>(url: string, timeoutMs = 30000): Promise<T> {
 		const webview = await getProxyWebview(this.partition);
 		await MiNoteAPI.ensureOrigin(webview);
-		const result = await webview.executeJavaScript(`
-			fetch('${url}').then(res => {
+
+		// 使用 JSON.stringify 转义 URL 参数，防止因 URL 中含有引号等特殊字符导致的代码注入风险
+		const fetchPromise = webview.executeJavaScript(`
+			fetch(${JSON.stringify(url)}).then(res => {
 				if (!res.ok) throw new Error('Status ' + res.status);
 				return res.json();
 			})
 		`);
+
+		// 请求超时兜底：防止 Webview 卡死、网络无响应等场景导致 Promise 永远不 resolve
+		const timeoutPromise = new Promise<never>((_, reject) =>
+			setTimeout(() => reject(new Error(`请求超时 (${timeoutMs}ms): ${url.substring(0, 80)}`)), timeoutMs)
+		);
+
+		const result = await Promise.race([fetchPromise, timeoutPromise]);
+
 		if (!result || result.code === 401) {
 			throw new Error("UNAUTHORIZED");
 		}
@@ -152,16 +166,24 @@ export class MiNoteAPI {
 		return this.request<NoteDetailResponse>(url);
 	}
 
-	public async downloadAttachment(fileId: string): Promise<ArrayBuffer> {
+	public async downloadAttachment(fileId: string, timeoutMs = 60000): Promise<ArrayBuffer> {
 		const url = `https://i.mi.com/file/full?fileid=${encodeURIComponent(fileId)}&type=note_img`;
 		const webview = await getProxyWebview(this.partition);
 		await MiNoteAPI.ensureOrigin(webview);
-		// 通过结构化克隆直接穿透 Uint8Array 回主进程
-		const uint8Array = await webview.executeJavaScript(`
-			fetch('${url}')
+
+		// 使用 JSON.stringify 转义 URL，与 request 方法保持一致
+		const fetchPromise = webview.executeJavaScript(`
+			fetch(${JSON.stringify(url)})
 				.then(res => res.arrayBuffer())
 				.then(buf => Array.from(new Uint8Array(buf)))
 		`);
+
+		// 附件下载超时兜底（默认 60s，大文件需要更长时间）
+		const timeoutPromise = new Promise<never>((_, reject) =>
+			setTimeout(() => reject(new Error(`附件下载超时 (${timeoutMs}ms): ${fileId}`)), timeoutMs)
+		);
+
+		const uint8Array = await Promise.race([fetchPromise, timeoutPromise]);
 		return new Uint8Array(uint8Array).buffer;
 	}
 }
