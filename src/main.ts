@@ -21,6 +21,7 @@ interface MiNoteSyncSettings {
 	dailySyncMethod: 'append' | 'cursor' | 'heading';
 	dailySyncHeading: string;
 	dailyNoteTemplate: string;
+	dailySyncLookbackHours: number;
 	syncState: SyncState;
 }
 
@@ -42,6 +43,7 @@ const DEFAULT_SETTINGS: MiNoteSyncSettings = {
 	dailySyncMethod: 'append',
 	dailySyncHeading: '## 小米笔记',
 	dailyNoteTemplate: '> [{{time}}] {{title}}\n\n{{content}}\n\n---',
+	dailySyncLookbackHours: 24,
 	syncState: {
 		lastSyncTime: 0,
 		syncTag: '',
@@ -77,7 +79,8 @@ export default class MiNoteSyncPlugin extends Plugin {
 			dailySyncAuto: this.settings.dailySyncAuto,
 			dailySyncMethod: this.settings.dailySyncMethod,
 			dailySyncHeading: this.settings.dailySyncHeading,
-			dailyNoteTemplate: this.settings.dailyNoteTemplate
+			dailyNoteTemplate: this.settings.dailyNoteTemplate,
+			dailySyncLookbackHours: this.settings.dailySyncLookbackHours
 		});
 	}
 
@@ -546,6 +549,20 @@ class MiNoteSyncSettingTab extends PluginSettingTab {
 								await this.plugin.saveSettings();
 							}));
 				}
+
+				new Setting(dailySectionContainer)
+					.setName('同步时间窗口 (小时)')
+					.setDesc('仅拉取指定时间范围内（过去 N 小时）修改过的笔记，防止将历史笔记意外刷入日记中。默认 24 小时。')
+					.addText(text => text
+						.setPlaceholder('24')
+						.setValue((this.plugin.settings.dailySyncLookbackHours ?? 24).toString())
+						.onChange(async (value) => {
+							const num = Number(value);
+							if (!isNaN(num) && num > 0) {
+								this.plugin.settings.dailySyncLookbackHours = num;
+								await this.plugin.saveSettings();
+							}
+						}));
 
 				const dailyMockVars = {
 					time: window.moment().format('HH:mm:ss'),
